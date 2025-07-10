@@ -4,9 +4,16 @@
   gather_facts: no
   connection: ansible.netcommon.network_cli
   vars:
+    ssid: "your_ssid"
+    wpa2_psk: "your_strong_password"
     ansible_network_os: community.routeros.routeros
     ansible_become: yes
     ansible_become_method: enable
+    # Network configuration
+    wifi_network: "192.168.11.0/24"
+    wifi_gateway: "192.168.11.1"
+    dhcp_range: "192.168.11.2-192.168.11.250"
+    ether1_for_nat: "192.168.1.1"
 
   tasks:
     # 0. Определяем имя основного WiFi интерфейса
@@ -47,7 +54,7 @@
     - name: Configure security profile
       community.routeros.command:
         commands:
-          - /interface wireless security-profiles add name=profile1 mode=dynamic-keys authentication-types=wpa2-psk wpa2-pre-shared-key=########################
+          - /interface wireless security-profiles add name=profile1 mode=dynamic-keys authentication-types=wpa2-psk wpa2-pre-shared-key="wpa2_psk"
       register: result
       changed_when: "'already exists' not in result.stdout[0]"
 
@@ -55,7 +62,7 @@
     - name: Configure wlan2 interface
       community.routeros.command:
         commands:
-          - /interface wireless set wlan2 ssid=your_ssid security-profile=profile1
+          - /interface wireless set wlan2 ssid="ssid" security-profile=profile1
       register: result
       changed_when: "'invalid value' not in result.stdout[0]"
 
@@ -79,7 +86,7 @@
     - name: Configure NAT for WiFi network
       community.routeros.command:
         commands:
-          - /ip firewall nat add chain=srcnat src-address=192.168.11.0/24 action=src-nat to-addresses=192.168.30.1
+          - /ip firewall nat add chain=srcnat src-address="wifi_network" action=src-nat to-addresses="ether1_for_nat"
       register: result
       changed_when: "'already exists' not in result.stdout[0]"
 
@@ -87,7 +94,7 @@
     - name: Add DHCP pool
       community.routeros.command:
         commands:
-          - /ip pool add name=wifi_pool ranges=192.168.2.2-192.168.2.250
+          - /ip pool add name=wifi_pool ranges="dhcp_range"
       register: result
       changed_when: "'already exists' not in result.stdout[0]"
 
@@ -111,7 +118,7 @@
     - name: Configure DHCP network
       community.routeros.command:
         commands:
-          - /ip dhcp-server network add address=192.168.2.0/24 gateway=192.168.2.1 dns-server=8.8.8.8
+          - /ip dhcp-server network add address="wifi_network" gateway="wifi_gateway" dns-server=8.8.8.8
       register: result
       changed_when: "'already exists' not in result.stdout[0]"
 
