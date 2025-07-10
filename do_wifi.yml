@@ -1,0 +1,137 @@
+---
+- name: Configure MikroTik WiFi using command module
+  hosts: mikrotik
+  gather_facts: no
+  connection: ansible.netcommon.network_cli
+  vars:
+    ansible_network_os: community.routeros.routeros
+    ansible_become: yes
+    ansible_become_method: enable
+
+  tasks:
+    # 0. Определяем имя основного WiFi интерфейса
+    - name: Get wireless interfaces (alternative method)
+      community.routeros.command:
+        commands:
+          - /interface wireless print without-paging
+      register: wifi_list
+      changed_when: false
+      when: primary_wifi is not defined
+
+    - name: Extract first wireless interface
+      set_fact:
+        primary_wifi: "{{ (wifi_list.stdout_lines[0] | regex_search('name=\"[^\"]+\"')).split('\"')[1] }}"
+      when:
+        - primary_wifi is not defined
+        - wifi_list.stdout_lines | length > 0
+    - debug:
+        msg: "Raw line: {{ wifi_list.stdout_lines[0] }}"
+
+    # 1. Включаем беспроводной интерфейс
+    - name: Enable wireless interface
+      community.routeros.command:
+        commands:
+          /interface wireless set [find name="{{ primary_wifi }}"] disabled=no
+      register: result
+      changed_when: "'no such item' not in result.stdout[0]"
+
+    # 2. Добавляем дочерний интерфейс wlan2
+    - name: Add child wireless interface
+      community.routeros.command:
+        commands:
+          - /interface wireless add name=wlan2 master-interface=[find name="{{ primary_wifi }}"] disabled=no
+      register: result
+      changed_when: "'already exists' not in result.stdout[0]"
+
+    # 3. Добавляем security profile
+    - name: Configure security profile
+      community.routeros.command:
+        commands:
+          - /interface wireless security-profiles add name=profile1 mode=dynamic-keys authentication-types=wpa2-psk wpa2-pre-shared-key=########################
+      register: result
+      changed_when: "'already exists' not in result.stdout[0]"
+
+    # 4. Настраиваем wlan2
+    - name: Configure wlan2 interface
+      community.routeros.command:
+        commands:
+          - /interface wireless set wlan2 ssid=your_ssid security-profile=profile1
+      register: result
+      changed_when: "'invalid value' not in result.stdout[0]"
+
+    # 5. Настраиваем головной wifi интерфейс
+    - name: Configure master wireless settings
+      community.routeros.command:
+        commands:
+          - /interface wireless set [find name="{{ primary_wifi }}"] mode=ap-bridge frequency=auto country=russia frequency-mode=manual-txpower hide-ssid=yes band=2ghz-b/g/n channel-width=20/40mhz-Ce
+      register: result
+      changed_when: "'invalid value' not in result.stdout[0]"
+
+    # 6. Добавляем IP адрес для wlan2
+    - name: Add IP address for wlan2
+      community.routeros.command:
+        commands:
+          - /ip address add address=192.168.11.1/24 interface=wlan2
+      register: result
+      changed_when: "'already have' not in result.stdout[0]"
+
+    # 7. Настраиваем NAT
+    - name: Configure NAT for WiFi network
+      community.routeros.command:
+        commands:
+          - /ip firewall nat add chain=srcnat src-address=192.168.11.0/24 action=src-nat to-addresses=192.168.30.1
+      register: result
+      changed_when: "'already exists' not in result.stdout[0]"
+
+    # 8. Добавляем DHCP pool
+    - name: Add DHCP pool
+      community.routeros.command:
+        commands:
+          - /ip pool add name=wifi_pool ranges=192.168.2.2-192.168.2.250
+      register: result
+      changed_when: "'already exists' not in result.stdout[0]"
+
+    # 9. Настраиваем DHCP сервер
+    - name: Remove existing DHCP server if present
+      community.routeros.command:
+        commands:
+          - /ip dhcp-server remove [find name="wifi_dhcp"]
+      ignore_errors: yes
+      changed_when: false
+      register: dhcp_remove
+
+    - name: Configure DHCP server
+      community.routeros.command:
+        commands:
+          - /ip dhcp-server add name=server1 interface=wlan2 address-pool=wifi_pool disabled=no
+      register: result
+      changed_when: "'already exists' not in result.stdout[0]"
+
+    # 10. Настраиваем DHCP network
+    - name: Configure DHCP network
+      community.routeros.command:
+        commands:
+          - /ip dhcp-server network add address=192.168.2.0/24 gateway=192.168.2.1 dns-server=8.8.8.8
+      register: result
+      changed_when: "'already exists' not in result.stdout[0]"
+
+    # 11. Сохраняем конфигурацию
+    - name: Save configuration
+      community.routeros.command:
+        commands:
+          - /system config save
+      changed_when: false
+
+    # 12. Проверка результатов
+    - name: Verify WiFi configuration
+      community.routeros.command:
+        commands:
+          - /interface wireless print
+          - /ip/address print where interface=wlan2
+          - /ip dhcp-server print
+      register: verify
+      changed_when: false
+
+    - name: Show verification results
+      debug:
+        var: verify.stdout_lines
