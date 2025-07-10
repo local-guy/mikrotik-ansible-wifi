@@ -15,7 +15,7 @@ Ansible playbook for automated configuration of MikroTik wireless interfaces, in
 - **Idempotent** - Safe for repeated runs
 
 ## 🚀 Quick Start
-
+ansible-playbook -i inventory playbook.yml
 ### Prerequisites
 - Ansible 2.9+
 - `community.routeros` collection
@@ -26,3 +26,15 @@ Ansible playbook for automated configuration of MikroTik wireless interfaces, in
 1. Install required Ansible collection:
    ```bash
    ansible-galaxy collection install community.routeros
+🔧 Customization
+Variables to Modify:
+ssid - Your wireless network name
+
+wpa2_psk - WiFi password (minimum 8 characters)
+
+wifi_network - IP subnet for wireless clients
+
+dhcp_range - DHCP address pool range
+
+Advanced Options:
+Change country setting in "Configure master wireless settings" task
